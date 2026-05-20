@@ -1,0 +1,11 @@
+{
+    "autodeskProduct": "Fusion360",
+    "type": "addin",
+    "author": "Cal Morrison",
+    "description": {
+        "": "Create and edit cable bodies from sketch curves"
+    },
+    "supportedOS": "windows|mac",
+    "editEnabled": true,
+    "version": "0.0.1"
+}
