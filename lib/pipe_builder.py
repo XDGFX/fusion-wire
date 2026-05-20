@@ -13,7 +13,7 @@ COLOUR_PRESETS = {
     "Yellow": (240, 210, 40),
 }
 
-INSULATION_APPEARANCE = "Plastic - Matte"
+INSULATION_APPEARANCE = "Plastic - Matte (Black)"
 CONDUCTOR_APPEARANCE = "Copper - Polished"
 
 
@@ -46,83 +46,33 @@ def create_cable(
     pipe_feature = pipe_features.add(pipe_input)
     body = pipe_feature.bodies.item(0)
 
+    path_token = path_curve.entityToken
+
     _apply_appearance(body, INSULATION_APPEARANCE, COLOUR_PRESETS[colour])
     _auto_name(body, cross_section, colour, component)
-    attributes.tag(body, cross_section, colour, False)
+    attributes.tag(body, cross_section, colour, False, path_token)
 
     return [body]
 
 
 def delete_cable(body: adsk.fusion.BRepBody):
-    """Delete a cable body (and its paired conductor body if present)."""
-    # TODO: Slice 3 — implement body deletion
-    raise NotImplementedError
+    """Delete a cable body from its parent component."""
+    body.deleteMe()
 
 
-def _find_appearance(app, design, appearance_name: str):
-    """
-    Return a base appearance by name.
-    Tries: design-local → exact library name → known variant names → fuzzy word match.
-    Shows a diagnostic message if nothing is found so the correct name can be identified.
-    """
-    # Variant names for appearances whose exact label differs between Fusion versions
-    _VARIANTS = {
-        "Plastic - Matte": [
-            "Plastic - Matte",
-            "Plastic - Matte (White)",
-            "Plastic - Matte White",
-        ],
-    }
-    candidates = _VARIANTS.get(appearance_name, [appearance_name])
-
-    # 1. Design-local appearances (fastest; covers re-use across calls)
-    for name in candidates:
-        a = design.appearances.itemByName(name)
-        if a:
-            return a
-
-    # 2. Walk every material/appearance library
-    all_names: list[str] = []
-    try:
-        for lib in app.materialLibraries:
-            try:
-                for name in candidates:
-                    a = lib.appearances.itemByName(name)
-                    if a:
-                        return a
-                # Collect names for fuzzy fallback and diagnostics
-                for i in range(lib.appearances.count):
-                    all_names.append(lib.appearances.item(i).name)
-            except Exception:
-                continue
-    except Exception:
-        pass
-
-    # 3. Fuzzy: any appearance whose name contains every word in the requested name
-    words = appearance_name.lower().split()
-    for name in all_names:
-        if all(w in name.lower() for w in words):
-            a = design.appearances.itemByName(name) or None
-            if not a:
-                # Try to find it in the libraries by the matched name
-                try:
-                    for lib in app.materialLibraries:
-                        try:
-                            a = lib.appearances.itemByName(name)
-                            if a:
-                                return a
-                        except Exception:
-                            continue
-                except Exception:
-                    pass
-
-    # 4. Nothing found — show a diagnostic so the correct name can be identified
-    sample = ", ".join(sorted(all_names)[:20]) or "(no libraries accessible)"
-    app.userInterface.messageBox(
-        f'FusionWire: could not find appearance "{appearance_name}".\n\n'
-        f"First 20 appearances found in loaded libraries:\n{sample}"
-    )
-    return None
+def recover_path(token: str):
+    """Resolve an entity token back to a sketch curve, or None if not found."""
+    app = adsk.core.Application.get()
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    result = design.findEntityByToken(token)
+    if result is None:
+        return None
+    # Fusion may return an ObjectCollection or the entity directly depending
+    # on API version — handle both.
+    col = adsk.core.ObjectCollection.cast(result)
+    if col is not None:
+        return col.item(0) if col.count > 0 else None
+    return adsk.fusion.SketchCurve.cast(result)
 
 
 def _apply_appearance(
@@ -133,7 +83,7 @@ def _apply_appearance(
     design = adsk.fusion.Design.cast(app.activeProduct)
 
     mat_lib = app.materialLibraries.itemByName("Fusion Appearance Library")
-    base_appearance = mat_lib.appearances.itemByName("Plastic - Matte (Black)")
+    base_appearance = mat_lib.appearances.itemByName(appearance_name)
 
     if rgb is None:
         body.appearance = base_appearance
